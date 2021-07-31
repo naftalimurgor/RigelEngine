@@ -276,6 +276,8 @@ Game::Game(
     mIsShareWareVersion,
     isFirstLaunch));
 
+  mRenderer.setFilteringEnabled(mRenderTarget.data(), true);
+
   mLastTime = base::Clock::now();
 }
 
@@ -618,6 +620,7 @@ void Game::applyChangedOptions()
   {
     mRenderTarget = renderer::createFullscreenRenderTarget(
       &mRenderer, mpUserProfile->mOptions);
+    mRenderer.setFilteringEnabled(mRenderTarget.data(), true);
   }
 
   mPreviousOptions = mpUserProfile->mOptions;
