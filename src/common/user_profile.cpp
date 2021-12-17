@@ -16,6 +16,7 @@
 
 #include "user_profile.hpp"
 
+#include "base/container_utils.hpp"
 #include "base/warnings.hpp"
 #include "common/json_utils.hpp"
 #include "loader/file_utils.hpp"
@@ -32,6 +33,20 @@ RIGEL_RESTORE_WARNINGS
 #include <iomanip>
 #include <iostream>
 #include <unordered_set>
+
+
+// namespace std::filesystem
+//{
+
+// void to_json(nlohmann::json& j, const path& p) {
+// j = p.u8string();
+//}
+
+// void from_json(const nlohmann::json& j, path& p) {
+// p = u8path(j.get<std::string>());
+//}
+
+//}
 
 
 namespace rigel
@@ -394,6 +409,10 @@ nlohmann::ordered_json serialize(const data::GameOptions& options)
     SDL_GetKeyName(options.mQuickSaveKeybinding);
   serialized["quickLoadKeybinding"] =
     SDL_GetKeyName(options.mQuickLoadKeybinding);
+  serialized["topLevelModsEnabled"] = options.mEnableTopLevelMods;
+  serialized["enabledModPaths"] = utils::transformed(
+    options.mEnabledModPaths,
+    [](const std::filesystem::path& p) { return p.u8string(); });
 
 #if 0
   // NOTE: This is disabled for now, it's not quite ready yet to be made
@@ -595,6 +614,16 @@ data::GameOptions deserialize<data::GameOptions>(const nlohmann::json& json)
     "quickSaveKeybinding", result.mQuickSaveKeybinding, json);
   extractKeyBindingIfExists(
     "quickLoadKeybinding", result.mQuickLoadKeybinding, json);
+  extractValueIfExists("topLevelModsEnabled", result.mEnableTopLevelMods, json);
+
+  std::vector<std::string> enabledModPaths;
+  extractValueIfExists("enabledModPaths", enabledModPaths, json);
+
+  result.mEnabledModPaths =
+    utils::transformed(enabledModPaths, [](const std::string& s) {
+      return std::filesystem::u8path(s);
+    });
+
   extractValueIfExists(
     "compatibilityModeOn", result.mCompatibilityModeOn, json);
   extractValueIfExists("widescreenModeOn", result.mWidescreenModeOn, json);

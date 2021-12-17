@@ -249,7 +249,10 @@ Game::Game(
   const bool isFirstLaunch)
   : mpWindow(pWindow)
   , mRenderer(pWindow)
-  , mResources(effectiveGamePath(commandLineOptions, *pUserProfile))
+  , mResources(
+      effectiveGamePath(commandLineOptions, *pUserProfile),
+      pUserProfile->mOptions.mEnableTopLevelMods,
+      pUserProfile->mOptions.mEnabledModPaths)
   , mpSoundSystem([&]() {
     std::unique_ptr<audio::SoundSystem> pResult;
     try
@@ -347,12 +350,17 @@ auto Game::runOneFrame() -> std::optional<StopReason>
 
   swapBuffers();
 
-  applyChangedOptions();
+  const auto changedOptionsRequireRestart = applyChangedOptions();
 
   if (!mGamePathToSwitchTo.empty())
   {
     mpUserProfile->mGamePath = mGamePathToSwitchTo;
     mpUserProfile->saveToDisk();
+    return StopReason::RestartNeeded;
+  }
+
+  if (changedOptionsRequireRestart)
+  {
     return StopReason::RestartNeeded;
   }
 
@@ -581,7 +589,7 @@ void Game::swapBuffers()
 }
 
 
-void Game::applyChangedOptions()
+bool Game::applyChangedOptions()
 {
   const auto& currentOptions = mpUserProfile->mOptions;
 
@@ -704,9 +712,15 @@ void Game::applyChangedOptions()
     updateUpscalingFilter();
   }
 
+  const auto restartNeeded =
+    currentOptions.mEnabledModPaths != mPreviousOptions.mEnabledModPaths ||
+    currentOptions.mEnableTopLevelMods != mPreviousOptions.mEnableTopLevelMods;
+
   mPreviousOptions = mpUserProfile->mOptions;
   mWidescreenModeWasActive = widescreenModeActive;
   mPreviousWindowSize = mRenderer.windowSize();
+
+  return restartNeeded;
 }
 
 

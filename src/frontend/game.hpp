@@ -93,7 +93,7 @@ private:
   void performScreenFadeBlocking(FadeType type);
 
   void swapBuffers();
-  void applyChangedOptions();
+  bool applyChangedOptions();
   void enumerateGameControllers();
   void takeScreenshot();
   void setPerElementUpscalingEnabled(bool enabled);

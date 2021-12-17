@@ -239,6 +239,8 @@ OptionsMenu::OptionsMenu(
   , mpUserProfile(pUserProfile)
   , mpOptions(&pUserProfile->mOptions)
   , mpServiceProvider(pServiceProvider)
+  , mEnabledModPathsCopy(mpOptions->mEnabledModPaths)
+  , mEnableTopLevelMods(mpOptions->mEnableTopLevelMods)
   , mType(type)
   , mIsRunningInDesktopEnvironment(sdl_utils::isRunningInDesktopEnvironment())
 {
@@ -314,6 +316,12 @@ void OptionsMenu::updateAndRender(engine::TimeDelta dt)
     // Popup was closed, quit the options menu
     endRebinding();
     mMenuOpen = false;
+
+    // Commit enabled mod paths on closing, so that the game is reloaded
+    // when we close the options menu, and not every time we tick/untick
+    // one of the checkboxes.
+    mpOptions->mEnableTopLevelMods = mEnableTopLevelMods;
+    mpOptions->mEnabledModPaths = mEnabledModPathsCopy;
     return;
   }
 
@@ -533,6 +541,63 @@ void OptionsMenu::updateAndRender(engine::TimeDelta dt)
           ImGui::Bullet();
           ImGui::Text(
             "%s (%s)", controller.mName.c_str(), controller.mGuid.c_str());
+        }
+      }
+
+      ImGui::EndTabItem();
+    }
+
+    if (ImGui::BeginTabItem("Modding"))
+    {
+      ImGui::NewLine();
+
+      if (mType != Type::Main)
+      {
+        ImGui::Text("Mods can only be enabled/disabled from the main menu");
+        ImGui::Spacing();
+      }
+
+      withEnabledState(mType == Type::Main, [&]() {
+        ImGui::Checkbox("Top-level mods (uncategorized)", &mEnableTopLevelMods);
+      });
+
+      auto iModsDir =
+        fs::directory_iterator{*mpUserProfile->mGamePath / "mods"};
+
+      for (const auto& entry : iModsDir)
+      {
+        if (entry.is_directory() && entry.exists())
+        {
+          const auto& entryPath = entry.path();
+          const auto entryDirName = entryPath.filename().u8string();
+
+          const auto iEntry = std::find(
+            mEnabledModPathsCopy.begin(),
+            mEnabledModPathsCopy.end(),
+            entryPath);
+          auto modEnabled = iEntry != mEnabledModPathsCopy.end();
+          const auto modWasEnabled = modEnabled;
+
+          withEnabledState(mType == Type::Main, [&]() {
+            ImGui::Checkbox(entryDirName.c_str(), &modEnabled);
+          });
+
+          if (modEnabled != modWasEnabled)
+          {
+            if (modEnabled)
+            {
+              mEnabledModPathsCopy.push_back(entryPath);
+            }
+            else
+            {
+              mEnabledModPathsCopy.erase(
+                std::remove(
+                  mEnabledModPathsCopy.begin(),
+                  mEnabledModPathsCopy.end(),
+                  entryPath),
+                mEnabledModPathsCopy.end());
+            }
+          }
         }
       }
 

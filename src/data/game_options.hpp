@@ -25,7 +25,9 @@ RIGEL_RESTORE_WARNINGS
 
 #include <array>
 #include <cstdint>
+#include <filesystem>
 #include <optional>
+#include <vector>
 
 
 namespace rigel::data
@@ -131,6 +133,10 @@ struct GameOptions
   SDL_Keycode mFireKeybinding = SDLK_LALT;
   SDL_Keycode mQuickSaveKeybinding = SDLK_F5;
   SDL_Keycode mQuickLoadKeybinding = SDLK_F7;
+
+  // Modding
+  bool mEnableTopLevelMods = true;
+  std::vector<std::filesystem::path> mEnabledModPaths;
 
   // Gameplay
   bool mCompatibilityModeOn = false;

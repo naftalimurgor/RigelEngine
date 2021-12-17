@@ -29,6 +29,7 @@
 
 #include <filesystem>
 #include <string>
+#include <vector>
 
 
 namespace rigel::loader
@@ -58,7 +59,10 @@ struct ActorData
 class ResourceLoader
 {
 public:
-  explicit ResourceLoader(const std::string& gamePath);
+  ResourceLoader(
+    const std::string& gamePath,
+    bool enableTopLevelMods,
+    std::vector<std::filesystem::path> modPaths);
 
   data::Image loadTiledFullscreenImage(std::string_view name) const;
   data::Image loadTiledFullscreenImage(
@@ -89,8 +93,10 @@ public:
   data::Song loadMusic(std::string_view name) const;
   bool hasSoundBlasterSound(data::SoundId id) const;
   data::AudioBuffer loadSoundBlasterSound(data::SoundId id) const;
-  std::filesystem::path replacementSoundPath(data::SoundId id) const;
-  std::filesystem::path replacementMusicBasePath() const;
+
+  std::vector<std::filesystem::path>
+    replacementSoundPaths(data::SoundId id) const;
+  std::vector<std::filesystem::path> replacementMusicBasePaths() const;
 
   ScriptBundle loadScriptBundle(std::string_view fileName) const;
 
@@ -102,8 +108,9 @@ private:
   data::AudioBuffer loadSound(std::string_view name) const;
 
   std::filesystem::path mGamePath;
+  std::vector<std::filesystem::path> mModPaths;
+  bool mEnableTopLevelMods;
   loader::CMPFilePackage mFilePackage;
-
   loader::ActorImagePackage mActorImagePackage;
 };
 

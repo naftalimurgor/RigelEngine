@@ -26,6 +26,10 @@ RIGEL_DISABLE_WARNINGS
 #include <imgui.h>
 RIGEL_RESTORE_WARNINGS
 
+#include <filesystem>
+#include <string>
+#include <unordered_map>
+
 
 namespace rigel
 {
@@ -75,6 +79,9 @@ private:
   IGameServiceProvider* mpServiceProvider;
 
   int mSelectedSoundIndex = 0;
+
+  std::vector<std::filesystem::path> mEnabledModPathsCopy;
+  bool mEnableTopLevelMods;
 
   SDL_Keycode* mpCurrentlyEditedBinding = nullptr;
   engine::TimeDelta mElapsedTimeEditingBinding = 0;
