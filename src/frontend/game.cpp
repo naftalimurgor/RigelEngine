@@ -24,7 +24,6 @@
 #include "game_logic/demo_player.hpp"
 #include "loader/duke_script_loader.hpp"
 #include "loader/png_image.hpp"
-#include "renderer/upscaling_utils.hpp"
 #include "ui/imgui_integration.hpp"
 
 #include "anti_piracy_screen_mode.hpp"
@@ -42,6 +41,7 @@ RIGEL_RESTORE_WARNINGS
 
 namespace rigel
 {
+
 
 using namespace engine;
 
@@ -104,50 +104,6 @@ auto loadScripts(const loader::ResourceLoader& resources)
   allScripts.insert(std::begin(orderInfoScripts), std::end(orderInfoScripts));
 
   return allScripts;
-}
-
-
-void setupRenderingViewport(
-  renderer::Renderer* pRenderer,
-  const bool perElementUpscaling)
-{
-  if (perElementUpscaling)
-  {
-    const auto [offset, size, scale] = renderer::determineViewPort(pRenderer);
-    pRenderer->setGlobalScale(scale);
-    pRenderer->setGlobalTranslation(offset);
-    pRenderer->setClipRect(base::Rect<int>{offset, size});
-  }
-  else
-  {
-    pRenderer->setClipRect(base::Rect<int>{{}, data::GameTraits::viewPortSize});
-  }
-}
-
-
-void setupPresentationViewport(
-  renderer::Renderer* pRenderer,
-  const bool perElementUpscaling,
-  const bool isWidescreenFrame)
-{
-  if (perElementUpscaling)
-  {
-    return;
-  }
-
-  const auto info = renderer::determineViewPort(pRenderer);
-  pRenderer->setGlobalScale(info.mScale);
-
-  if (isWidescreenFrame)
-  {
-    const auto offset =
-      renderer::determineWidescreenViewPort(pRenderer).mLeftPaddingPx;
-    pRenderer->setGlobalTranslation({offset, 0});
-  }
-  else
-  {
-    pRenderer->setGlobalTranslation(info.mOffset);
-  }
 }
 
 
@@ -278,9 +234,7 @@ Game::Game(
     return !hasRegisteredVersionFiles;
   }())
   , mFpsLimiter(createLimiter(pUserProfile->mOptions))
-  , mRenderTarget(renderer::createFullscreenRenderTarget(
-      &mRenderer,
-      pUserProfile->mOptions))
+  , mUpscalingBuffer(&mRenderer, pUserProfile->mOptions)
   , mIsRunning(true)
   , mIsMinimized(false)
   , mCommandLineOptions(commandLineOptions)
@@ -386,12 +340,8 @@ void Game::updateAndRender(const entityx::TimeDelta elapsed)
   mCurrentFrameIsWidescreen = false;
 
   auto pMaybeNextMode = std::invoke([&]() {
-    auto saved = mRenderTarget.bind();
-    mRenderer.clear();
-
-    setupRenderingViewport(
-      &mRenderer, mpUserProfile->mOptions.mPerElementUpscalingEnabled);
-
+    auto saved = mUpscalingBuffer.bind(
+      mpUserProfile->mOptions.mPerElementUpscalingEnabled);
     return mpCurrentGameMode->updateAndRender(elapsed, mEventQueue);
   });
 
@@ -403,33 +353,21 @@ void Game::updateAndRender(const entityx::TimeDelta elapsed)
     mpCurrentGameMode = std::move(pMaybeNextMode);
 
     {
-      auto saved = mRenderTarget.bind();
-      setupRenderingViewport(
-        &mRenderer, mpUserProfile->mOptions.mPerElementUpscalingEnabled);
+      auto saved = mUpscalingBuffer.bind(
+        mpUserProfile->mOptions.mPerElementUpscalingEnabled);
       mpCurrentGameMode->updateAndRender(0, {});
     }
 
     fadeInScreen();
   }
 
-  if (mAlphaMod != 0)
+  mUpscalingBuffer.present(
+    mCurrentFrameIsWidescreen,
+    mpUserProfile->mOptions.mPerElementUpscalingEnabled);
+
+  if (mpUserProfile->mOptions.mShowFpsCounter)
   {
-    mRenderer.clear();
-
-    {
-      auto saved = renderer::saveState(&mRenderer);
-      setupPresentationViewport(
-        &mRenderer,
-        mpUserProfile->mOptions.mPerElementUpscalingEnabled,
-        mCurrentFrameIsWidescreen);
-      mRenderTarget.render(0, 0);
-      mRenderer.submitBatch();
-    }
-
-    if (mpUserProfile->mOptions.mShowFpsCounter)
-    {
-      mFpsDisplay.updateAndRender(elapsed);
-    }
+    mFpsDisplay.updateAndRender(elapsed);
   }
 }
 
@@ -530,16 +468,12 @@ void Game::performScreenFadeBlocking(const FadeType type)
   // So we'd need to either find a way to suspend and then resume C++ code
   // execution during the fade, or rewrite all client code to be stateful
   // instead of relying on a blocking fade() function.
-  mAlphaMod = type == FadeType::In ? 255 : 0;
+  mUpscalingBuffer.setAlphaMod(type == FadeType::In ? 255 : 0);
 #else
   using namespace std::chrono;
 
   auto saved = renderer::saveState(&mRenderer);
   mRenderer.resetState();
-  setupPresentationViewport(
-    &mRenderer,
-    mpUserProfile->mOptions.mPerElementUpscalingEnabled,
-    mCurrentFrameIsWidescreen);
 
   auto startTime = base::Clock::now();
 
@@ -551,11 +485,12 @@ void Game::performScreenFadeBlocking(const FadeType type)
     const auto fadeFactor =
       std::clamp((fastTicksElapsed / 4.0) / 16.0, 0.0, 1.0);
     const auto alpha = type == FadeType::In ? fadeFactor : 1.0 - fadeFactor;
-    mAlphaMod = base::roundTo<std::uint8_t>(255.0 * alpha);
+    const auto alphaMod = base::roundTo<std::uint8_t>(255.0 * alpha);
 
-    mRenderer.clear();
-    mRenderer.setColorModulation({255, 255, 255, mAlphaMod});
-    mRenderTarget.render(0, 0);
+    mUpscalingBuffer.setAlphaMod(alphaMod);
+    mUpscalingBuffer.present(
+      mCurrentFrameIsWidescreen,
+      mpUserProfile->mOptions.mPerElementUpscalingEnabled);
     swapBuffers();
 
     if (fadeFactor >= 1.0)
@@ -584,13 +519,6 @@ void Game::swapBuffers()
 void Game::applyChangedOptions()
 {
   const auto& currentOptions = mpUserProfile->mOptions;
-
-  auto updateUpscalingFilter = [&]() {
-    mRenderer.setFilteringEnabled(
-      mRenderTarget.data(),
-      currentOptions.mUpscalingFilter == data::UpscalingFilter::Bilinear);
-  };
-
 
   if (
     currentOptions.effectiveWindowMode() !=
@@ -646,11 +574,6 @@ void Game::applyChangedOptions()
     mFpsLimiter = createLimiter(currentOptions);
   }
 
-  if (currentOptions.mUpscalingFilter != mPreviousOptions.mUpscalingFilter)
-  {
-    updateUpscalingFilter();
-  }
-
   if (mpSoundSystem)
   {
     if (currentOptions.mSoundStyle != mPreviousOptions.mSoundStyle)
@@ -687,21 +610,10 @@ void Game::applyChangedOptions()
     renderer::canUseWidescreenMode(&mRenderer);
   if (
     widescreenModeActive != mWidescreenModeWasActive ||
-    mPreviousWindowSize != mRenderer.windowSize())
+    mPreviousWindowSize != mRenderer.windowSize() ||
+    currentOptions.mUpscalingFilter != mPreviousOptions.mUpscalingFilter)
   {
-    mRenderTarget = renderer::createFullscreenRenderTarget(
-      &mRenderer, mpUserProfile->mOptions);
-    updateUpscalingFilter();
-  }
-
-
-  if (
-    currentOptions.mPerElementUpscalingEnabled !=
-    mPreviousOptions.mPerElementUpscalingEnabled)
-  {
-    // The render target has already been recreated in
-    // setPerElementUpscalingEnabled(), just need to update upscaling.
-    updateUpscalingFilter();
+    mUpscalingBuffer.updateConfiguration(currentOptions);
   }
 
   mPreviousOptions = mpUserProfile->mOptions;
@@ -785,14 +697,13 @@ void Game::setPerElementUpscalingEnabled(bool enabled)
   if (enabled != mpUserProfile->mOptions.mPerElementUpscalingEnabled)
   {
     mpUserProfile->mOptions.mPerElementUpscalingEnabled = enabled;
-    mRenderTarget = renderer::createFullscreenRenderTarget(
-      &mRenderer, mpUserProfile->mOptions);
+    mUpscalingBuffer.updateConfiguration(mpUserProfile->mOptions);
   }
 }
 
 void Game::fadeOutScreen()
 {
-  if (mAlphaMod == 0)
+  if (mUpscalingBuffer.alphaMod() == 0)
   {
     // Already faded out
     return;
@@ -801,8 +712,7 @@ void Game::fadeOutScreen()
   performScreenFadeBlocking(FadeType::Out);
 
   // Clear render canvas after a fade-out
-  const auto saved = mRenderTarget.bindAndReset();
-  mRenderer.clear();
+  mUpscalingBuffer.clear();
 
   mCurrentFrameIsWidescreen = false;
 }
@@ -810,7 +720,7 @@ void Game::fadeOutScreen()
 
 void Game::fadeInScreen()
 {
-  if (mAlphaMod == 255)
+  if (mUpscalingBuffer.alphaMod() == 255)
   {
     // Already faded in
     return;

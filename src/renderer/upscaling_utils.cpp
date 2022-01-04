@@ -79,6 +79,50 @@ int determineLowResBufferWidth(
   return data::GameTraits::viewPortWidthPx;
 }
 
+
+void setupRenderingViewport(
+  renderer::Renderer* pRenderer,
+  const bool perElementUpscaling)
+{
+  if (perElementUpscaling)
+  {
+    const auto [offset, size, scale] = renderer::determineViewPort(pRenderer);
+    pRenderer->setGlobalScale(scale);
+    pRenderer->setGlobalTranslation(offset);
+    pRenderer->setClipRect(base::Rect<int>{offset, size});
+  }
+  else
+  {
+    pRenderer->setClipRect(base::Rect<int>{{}, data::GameTraits::viewPortSize});
+  }
+}
+
+
+void setupPresentationViewport(
+  renderer::Renderer* pRenderer,
+  const bool perElementUpscaling,
+  const bool isWidescreenFrame)
+{
+  if (perElementUpscaling)
+  {
+    return;
+  }
+
+  const auto info = renderer::determineViewPort(pRenderer);
+  pRenderer->setGlobalScale(info.mScale);
+
+  if (isWidescreenFrame)
+  {
+    const auto offset =
+      renderer::determineWidescreenViewPort(pRenderer).mLeftPaddingPx;
+    pRenderer->setGlobalTranslation({offset, 0});
+  }
+  else
+  {
+    pRenderer->setGlobalTranslation(info.mOffset);
+  }
+}
+
 } // namespace
 
 
@@ -154,6 +198,63 @@ RenderTargetTexture createFullscreenRenderTarget(
       determineLowResBufferWidth(pRenderer, options.mWidescreenModeOn),
       data::GameTraits::viewPortHeightPx};
   }
+}
+
+
+UpscalingBuffer::UpscalingBuffer(
+  Renderer* pRenderer,
+  const data::GameOptions& options)
+  : mRenderTarget(renderer::createFullscreenRenderTarget(pRenderer, options))
+  , mpRenderer(pRenderer)
+{
+}
+
+[[nodiscard]] base::ScopeGuard
+  UpscalingBuffer::bind(const bool perElementUpscaling)
+{
+  auto saved = mRenderTarget.bind();
+  mpRenderer->clear();
+
+  setupRenderingViewport(mpRenderer, perElementUpscaling);
+  return saved;
+}
+
+
+void UpscalingBuffer::clear()
+{
+  const auto saved = mRenderTarget.bindAndReset();
+  mpRenderer->clear();
+}
+
+
+void UpscalingBuffer::present(
+  const bool currentFrameIsWidescreen,
+  const bool perElementUpscaling)
+{
+  mpRenderer->clear();
+
+  auto saved = renderer::saveState(mpRenderer);
+  setupPresentationViewport(
+    mpRenderer, perElementUpscaling, currentFrameIsWidescreen);
+
+  mpRenderer->setColorModulation({255, 255, 255, mAlphaMod});
+  mRenderTarget.render(0, 0);
+  mpRenderer->submitBatch();
+}
+
+
+void UpscalingBuffer::setAlphaMod(const std::uint8_t alphaMod)
+{
+  mAlphaMod = alphaMod;
+}
+
+
+void UpscalingBuffer::updateConfiguration(const data::GameOptions& options)
+{
+  mRenderTarget = createFullscreenRenderTarget(mpRenderer, options);
+  mpRenderer->setFilteringEnabled(
+    mRenderTarget.data(),
+    options.mUpscalingFilter == data::UpscalingFilter::Bilinear);
 }
 
 } // namespace rigel::renderer
