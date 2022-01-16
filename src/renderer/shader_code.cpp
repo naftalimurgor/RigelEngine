@@ -16,8 +16,13 @@
 
 #include "shader_code.hpp"
 
+#include <array>
+
 
 namespace rigel::renderer
+{
+
+namespace
 {
 
 const char* VERTEX_SOURCE = R"shd(
@@ -184,5 +189,46 @@ void main() {
   OUTPUT_COLOR = mix(color, applyWaterEffect(color), maskValue);
 }
 )shd";
+
+
+const auto TEXTURED_QUAD_SHADER_ATTRIBUTES = std::array{
+  AttributeDescription{"position", 2},
+  AttributeDescription{"texCoord", 2}};
+
+
+const auto SOLID_COLOR_SHADER_ATTRIBUTES = std::array{
+  AttributeDescription{"position", 2},
+  AttributeDescription{"color", 4}};
+
+
+const auto WATER_EFFECT_SHADER_ATTRIBUTES = std::array{
+  AttributeDescription{"position", 2},
+  AttributeDescription{"texCoordMask", 2}};
+
+} // namespace
+
+
+const ShaderSpec TEXTURED_QUAD_SHADER{
+  TEXTURED_QUAD_SHADER_ATTRIBUTES,
+  VERTEX_SOURCE,
+  FRAGMENT_SOURCE};
+
+
+const ShaderSpec SIMPLE_TEXTURED_QUAD_SHADER{
+  TEXTURED_QUAD_SHADER_ATTRIBUTES,
+  VERTEX_SOURCE,
+  FRAGMENT_SOURCE_SIMPLE};
+
+
+const ShaderSpec SOLID_COLOR_SHADER{
+  SOLID_COLOR_SHADER_ATTRIBUTES,
+  VERTEX_SOURCE_SOLID,
+  FRAGMENT_SOURCE_SOLID};
+
+
+const ShaderSpec WATER_EFFECT_SHADER{
+  WATER_EFFECT_SHADER_ATTRIBUTES,
+  VERTEX_SOURCE_WATER_EFFECT,
+  FRAGMENT_SOURCE_WATER_EFFECT};
 
 } // namespace rigel::renderer

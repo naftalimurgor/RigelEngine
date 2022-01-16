@@ -17,6 +17,7 @@
 #include "shader.hpp"
 
 #include <memory>
+#include <numeric>
 #include <stdexcept>
 #include <string>
 
@@ -116,28 +117,31 @@ GlHandleWrapper compileShader(const std::string& source, GLenum type)
   return shader;
 }
 
+
+void* toAttribOffset(std::uintptr_t offset)
+{
+  return reinterpret_cast<void*>(offset);
+}
+
 } // namespace
 
 
-Shader::Shader(
-  const char* vertexSource,
-  const char* fragmentSource,
-  std::initializer_list<std::string> attributesToBind)
+Shader::Shader(const ShaderSpec& spec)
   : mProgram(glCreateProgram(), glDeleteProgram)
+  , mAttributeDescs(spec.mAttributeDescs)
 {
   auto vertexShader = compileShader(
-    std::string{SHADER_PREAMBLE} + vertexSource, GL_VERTEX_SHADER);
+    std::string{SHADER_PREAMBLE} + spec.mVertexSource, GL_VERTEX_SHADER);
   auto fragmentShader = compileShader(
-    std::string{SHADER_PREAMBLE} + fragmentSource, GL_FRAGMENT_SHADER);
+    std::string{SHADER_PREAMBLE} + spec.mFragmentSource, GL_FRAGMENT_SHADER);
 
   glAttachShader(mProgram.mHandle, vertexShader.mHandle);
   glAttachShader(mProgram.mHandle, fragmentShader.mHandle);
 
-  int index = 0;
-  for (const auto& attributeName : attributesToBind)
+  for (GLuint index = 0; index < spec.mAttributeDescs.size(); ++index)
   {
-    glBindAttribLocation(mProgram.mHandle, index, attributeName.c_str());
-    ++index;
+    glBindAttribLocation(
+      mProgram.mHandle, index, spec.mAttributeDescs[index].mName);
   }
 
   glLinkProgram(mProgram.mHandle);
@@ -170,7 +174,36 @@ Shader::Shader(
 
 void Shader::use()
 {
+  using std::begin;
+  using std::end;
+
   glUseProgram(mProgram.mHandle);
+
+  const auto totalValueCount = std::accumulate(
+    begin(mAttributeDescs),
+    end(mAttributeDescs),
+    0,
+    [](const int count, const AttributeDescription& desc) {
+      return count + desc.mValueCount;
+    });
+
+  const auto stride = GLsizei(sizeof(float) * totalValueCount);
+
+  std::uintptr_t nextOffset = 0;
+  for (GLuint index = 0; index < mAttributeDescs.size(); ++index)
+  {
+    const auto valueCount = mAttributeDescs[index].mValueCount;
+
+    glVertexAttribPointer(
+      index,
+      valueCount,
+      GL_FLOAT,
+      GL_FALSE,
+      stride,
+      toAttribOffset(nextOffset));
+
+    nextOffset += valueCount * sizeof(float);
+  }
 }
 
 

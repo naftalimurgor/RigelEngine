@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include "base/array_view.hpp"
 #include "base/warnings.hpp"
 #include "renderer/opengl.hpp"
 
@@ -66,13 +67,25 @@ private:
 };
 
 
+struct AttributeDescription
+{
+  const char* mName;
+  int mValueCount;
+};
+
+
+struct ShaderSpec
+{
+  base::ArrayView<AttributeDescription> mAttributeDescs;
+  const char* mVertexSource;
+  const char* mFragmentSource;
+};
+
+
 class Shader
 {
 public:
-  Shader(
-    const char* vertexSource,
-    const char* fragmentSource,
-    std::initializer_list<std::string> attributesToBind);
+  Shader(const ShaderSpec& spec);
 
   void use();
 
@@ -134,6 +147,7 @@ private:
 
 private:
   GlHandleWrapper mProgram;
+  base::ArrayView<AttributeDescription> mAttributeDescs;
   mutable std::unordered_map<std::string, GLint> mLocationCache;
 };
 
